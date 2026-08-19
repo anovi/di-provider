@@ -24,7 +24,7 @@ describe("Component @buiding-blocks", () => {
 
       it("should throw an error if the name is not provided", () => {
         assert.throws(() => {
-          // @ts-ignore
+          // @ts-expect-error Provider requires to define a name for a module.
           Provider.define({});
         });
       });
@@ -86,7 +86,7 @@ describe("Component @buiding-blocks", () => {
       it("should throw an error if the implementation is not provided", () => {
         const component = Provider.define({ name: "test" });
         assert.throws(() => {
-          component.impl;
+          return component.impl;
         });
       });
 
@@ -393,13 +393,13 @@ describe("Component @buiding-blocks", () => {
       ]);
 
       class TestService1 implements Module1 {
-        name: "super";
+        name = "super" as const;
       }
       class TestService2 implements Module2 {
-        name: "govn";
+        name = "govn" as const;
       }
       class TestService3 implements Module3 {
-        name: "huu";
+        name = "huu" as const;
       }
 
       MyModule3.provide(new TestService3());
