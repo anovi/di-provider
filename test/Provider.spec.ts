@@ -1,7 +1,11 @@
 import assert from "node:assert";
 import { afterEach, beforeEach, describe, it, vi } from "vitest";
 
-import { Provider, ProviderInitParamsSymbol } from "../src/Provider";
+import {
+  Provider,
+  ProviderInitParamsSymbol,
+  ProviderState,
+} from "../src/Provider";
 import * as IndexExports from "../src/index";
 import {
   LifecycleProvider,
@@ -1177,6 +1181,7 @@ describe("Provider", () => {
   describe("index exports", () => {
     it("exports all expected symbols from root index", () => {
       assert.strictEqual(IndexExports.Provider, Provider);
+      assert.strictEqual(IndexExports.ProviderState, ProviderState);
       assert.strictEqual(
         IndexExports.ProviderInitParamsSymbol,
         ProviderInitParamsSymbol

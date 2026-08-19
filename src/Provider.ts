@@ -21,6 +21,16 @@ type StoppableProvider<S> = IProvider<S> & Stoppable;
 
 export const ProviderInitParamsSymbol = Symbol("ProviderInitParams");
 
+export const ProviderState = {
+  IDLE: "idle",
+  INITIALIZING: "initializing",
+  READY: "ready",
+  STARTED: "started",
+  STOPPED: "stopped",
+} as const;
+
+export type ProviderState = (typeof ProviderState)[keyof typeof ProviderState];
+
 function formatInvalidDependencyEntry(dep: unknown): string {
   if (dep === undefined) return "undefined";
   if (dep === null) return "null";
@@ -113,12 +123,14 @@ export class Provider<
   }
 
   get isReady(): boolean {
-    return this.isProviderReady;
+    return (
+      this.state === ProviderState.READY || this.state === ProviderState.STARTED
+    );
   }
 
   /** True after {@link start} has completed successfully (for idempotent lifecycle orchestration). */
   get hasStarted(): boolean {
-    return this.isStarted;
+    return this.state === ProviderState.STARTED;
   }
 
   get dependencies(): DepsProviders | undefined {
@@ -126,9 +138,9 @@ export class Provider<
   }
 
   on(event: "ready" | "start" | "stop", callback: () => void): void {
-    if (event === "ready") this.readyCallbacks.push(callback);
-    else if (event === "start") this.startCallbacks.push(callback);
-    else this.stopCallbacks.push(callback);
+    if (event === "ready") (this.readyCallbacks ??= []).push(callback);
+    else if (event === "start") (this.startCallbacks ??= []).push(callback);
+    else (this.stopCallbacks ??= []).push(callback);
   }
 
   static define<S>(props: ProviderProps, deps?: Provider<any, any>[]) {
@@ -148,10 +160,11 @@ export class Provider<
 
     for (let index = 0; index < all.length; index++) {
       const p = all[index];
-      if (p.isProviderReady) {
-        if (!p.isStarted && !p.isStopped) initialized.push(p);
-        else started.push(p);
-      } else if (p.isStopped) {
+      if (p.state === ProviderState.READY) {
+        initialized.push(p);
+      } else if (p.state === ProviderState.STARTED) {
+        started.push(p);
+      } else if (p.state === ProviderState.STOPPED) {
         stopped.push(p);
       } else {
         ignored.push(p);
@@ -313,7 +326,7 @@ export class Provider<
   }
 
   async init(): Promise<void> {
-    if (this.isInitializing || this.isProviderReady) {
+    if (this.state === ProviderState.INITIALIZING || this.isReady) {
       throw new Error(
         `Provider "${this.name}" init is already in progress or completed`
       );
@@ -322,7 +335,7 @@ export class Provider<
       throw new Error(`Implementation for "${this.name}" is not provided`);
     }
 
-    this.isInitializing = true;
+    this.state = ProviderState.INITIALIZING;
     try {
       if (
         this.lifecycleOptions &&
@@ -339,19 +352,17 @@ export class Provider<
 
       this.markReady();
     } catch (error) {
+      this.state = ProviderState.IDLE;
       this.markBroken(error);
       throw error;
-    } finally {
-      this.isInitializing = false;
-      this.isStopped = false;
     }
   }
 
   start(): void {
-    if (!this.isProviderReady) {
+    if (!this.isReady) {
       throw new Error(`Provider "${this.name}" is not ready`);
     }
-    if (this.isStarted) {
+    if (this.state === ProviderState.STARTED) {
       throw new Error(`Provider "${this.name}" start was already called`);
     }
 
@@ -365,14 +376,16 @@ export class Provider<
       (this.implementation as any).start();
     }
 
-    this.isStarted = true;
-    this.isStopped = false;
-    for (const cb of this.startCallbacks) cb();
+    this.state = ProviderState.STARTED;
+    if (this.startCallbacks) {
+      for (const cb of this.startCallbacks) cb();
+    }
   }
 
   async stop(): Promise<void> {
-    if (this.isStopped)
+    if (this.state === ProviderState.STOPPED) {
       console.warn(`Provider "${this.name}" is already stopped!`);
+    }
     if (!this.implementation) {
       throw new Error(`Implementation for "${this.name}" is not provided`);
     }
@@ -387,11 +400,10 @@ export class Provider<
       await (this.implementation as any).stop();
     }
 
-    this.isInitializing = false;
-    this.isStarted = false;
-    this.isProviderReady = false;
-    this.isStopped = true;
-    for (const cb of this.stopCallbacks) cb();
+    this.state = ProviderState.STOPPED;
+    if (this.stopCallbacks) {
+      for (const cb of this.stopCallbacks) cb();
+    }
   }
 
   isInitializable(): this is InitializableProvider<S> {
@@ -458,13 +470,10 @@ export class Provider<
   private lifecycleOptions?: ProviderLifecycleOptions<S>;
   private markReady!: () => void;
   private markBroken!: (error: unknown) => void;
-  private isProviderReady: boolean = false;
-  private isInitializing: boolean = false;
-  private isStarted: boolean = false;
-  private isStopped: boolean = false;
-  private readyCallbacks: (() => void)[] = [];
-  private startCallbacks: (() => void)[] = [];
-  private stopCallbacks: (() => void)[] = [];
+  private state: ProviderState = ProviderState.IDLE;
+  private readyCallbacks?: (() => void)[];
+  private startCallbacks?: (() => void)[];
+  private stopCallbacks?: (() => void)[];
 
   private constructor(props: ProviderProps, deps?: DepsProviders) {
     if (!props.name) throw new Error("Provider name is required");
@@ -472,8 +481,10 @@ export class Provider<
     this.dependenciesList = deps;
     this.whenReady = new Promise((resolve, reject) => {
       this.markReady = () => {
-        this.isProviderReady = true;
-        for (const cb of this.readyCallbacks) cb();
+        this.state = ProviderState.READY;
+        if (this.readyCallbacks) {
+          for (const cb of this.readyCallbacks) cb();
+        }
         resolve();
       };
       this.markBroken = reject;
