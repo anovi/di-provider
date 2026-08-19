@@ -100,7 +100,6 @@ export class Provider<
   DepsProviders extends Provider<any, any>[] | undefined = undefined,
 > implements IProvider<S> {
   readonly whenReady: Promise<void>;
-  readonly ready: Promise<void>;
 
   [ProviderInitParamsSymbol] = undefined;
 
@@ -479,7 +478,6 @@ export class Provider<
       };
       this.markBroken = reject;
     });
-    this.ready = this.whenReady;
     return;
   }
 }

@@ -57,17 +57,32 @@ describe("LifecycleOrchestrator", () => {
           calls.push("Shared:init");
         },
       });
-      const providerConsumer = createProvider({
-        name: "Consumer",
+      const providerConsumerA = createProvider({
+        name: "ConsumerA",
         dependencies: [providerShared],
         init: async () => {
-          calls.push("Consumer:init");
+          calls.push("ConsumerA:init");
+        },
+      });
+      const providerConsumerB = createProvider({
+        name: "ConsumerB",
+        dependencies: [providerShared],
+        init: async () => {
+          calls.push("ConsumerB:init");
         },
       });
 
-      await initInDependencyOrder([providerShared, providerConsumer]);
+      await initInDependencyOrder([
+        providerShared,
+        providerConsumerA,
+        providerConsumerB,
+      ]);
 
-      assert.deepStrictEqual(calls, ["Shared:init", "Consumer:init"]);
+      assert.deepStrictEqual(calls, [
+        "Shared:init",
+        "ConsumerA:init",
+        "ConsumerB:init",
+      ]);
     });
 
     it("throws when a dependency cycle exists", async () => {

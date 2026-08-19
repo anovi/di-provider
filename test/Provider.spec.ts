@@ -9,7 +9,7 @@ import {
   stopInReverseDependencyOrder,
 } from "../src/LifecycleOrchestrator";
 
-describe("Component @buiding-blocks", () => {
+describe("Provider", () => {
   describe("creation", () => {
     describe("Provider.define", () => {
       it("should create a new instance of Component", () => {
