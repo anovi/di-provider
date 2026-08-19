@@ -38,8 +38,8 @@ function getDependencies<I>(
 }
 
 /** Provider instances from {@link Provider} expose `isReady` after successful init. */
-function isLifecycleProviderAlreadyReady(
-  provider: LifecycleProvider<unknown>
+function isLifecycleProviderAlreadyReady<I>(
+  provider: LifecycleProvider<I>
 ): boolean {
   return (
     "isReady" in provider && (provider as { isReady: boolean }).isReady === true
@@ -47,8 +47,8 @@ function isLifecycleProviderAlreadyReady(
 }
 
 /** Provider instances from {@link Provider} expose `hasStarted` after {@link Provider.start}. */
-function isLifecycleProviderAlreadyStarted(
-  provider: LifecycleProvider<unknown>
+function isLifecycleProviderAlreadyStarted<I>(
+  provider: LifecycleProvider<I>
 ): boolean {
   return (
     "hasStarted" in provider &&
