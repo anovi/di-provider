@@ -103,8 +103,6 @@ export class Provider<
 
   [ProviderInitParamsSymbol] = undefined;
 
-  private static _registry = new Set<Provider<any, any>>();
-
   get name(): string {
     return this.props.name;
   }
@@ -451,6 +449,8 @@ export class Provider<
   }
 
   /*----------  Private  ----------*/
+
+  private static _registry = new Set<Provider<any, any>>();
 
   private implementation!: S;
   private props: ProviderProps;

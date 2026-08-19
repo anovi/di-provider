@@ -1,7 +1,8 @@
 import assert from "node:assert";
-import { describe, it } from "vitest";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 
 import { Provider, ProviderInitParamsSymbol } from "../src/Provider";
+import * as IndexExports from "../src/index";
 import {
   LifecycleProvider,
   initInDependencyOrder,
@@ -10,6 +11,10 @@ import {
 } from "../src/LifecycleOrchestrator";
 
 describe("Provider", () => {
+  beforeEach(() => {
+    Provider.reset();
+  });
+
   describe("creation", () => {
     describe("Provider.define", () => {
       it("should create a new instance of Component", () => {
@@ -61,7 +66,57 @@ describe("Provider", () => {
           Provider.define({ name: "has-plain-dep" }, [
             {} as unknown as Provider<unknown>,
           ]);
-        }, /Provider "has-plain-dep" dependency at index 0 must be a Provider instance/);
+        }, /Provider "has-plain-dep" dependency at index 0 must be a Provider instance \(got an instance of Object\)/);
+      });
+
+      const wrongTypes = [
+        123,
+        "str",
+        true,
+        Symbol("x"),
+        () => {},
+        new Date(),
+        Object.create(null),
+      ];
+
+      it("should format primitive and null-prototype dependency error messages", () => {
+        for (let i = 0; i < wrongTypes.length; i++) {
+          const type = wrongTypes[i];
+          const name = "item" + i;
+          assert.throws(
+            () => {
+              Provider.define({ name }, [type as unknown as Provider<unknown>]);
+            },
+            err =>
+              err instanceof Error &&
+              err.message.includes(
+                "dependency at index 0 must be a Provider instance"
+              )
+          );
+        }
+      });
+
+      it("should report depsLength and dependencies correctly", () => {
+        const withoutDeps = Provider.define({ name: "without-deps" });
+        assert.strictEqual(withoutDeps.depsLength, 0);
+        assert.strictEqual(withoutDeps.dependencies, undefined);
+
+        const emptyDeps = Provider.define({ name: "empty-deps" }, []);
+        assert.strictEqual(emptyDeps.depsLength, 0);
+        assert.deepStrictEqual(emptyDeps.dependencies, []);
+
+        const dep1 = Provider.define({ name: "d1" });
+        const dep2 = Provider.define({ name: "d2" });
+        const withDeps = Provider.define({ name: "with-deps" }, [dep1, dep2]);
+        assert.strictEqual(withDeps.depsLength, 2);
+        assert.deepStrictEqual(withDeps.dependencies, [dep1, dep2]);
+      });
+
+      it("should support instance define method", () => {
+        const parent = Provider.define({ name: "parent" });
+        const child = parent.define({ name: "child" });
+        assert.ok(child instanceof Provider);
+        assert.strictEqual(child.name, "child");
       });
 
       it("should accept a valid Provider dependency", () => {
@@ -478,6 +533,118 @@ describe("Provider", () => {
       );
     });
 
+    it("should throw if init is called concurrently while already in progress", async () => {
+      const component = Provider.define({ name: "init-concurrent" });
+      let resolveInit!: () => void;
+      component.provide(
+        {},
+        {
+          init: () =>
+            new Promise(resolve => {
+              resolveInit = resolve;
+            }),
+        }
+      );
+
+      const firstInit = component.init();
+      await assert.rejects(
+        component.init(),
+        /Provider "init-concurrent" init is already in progress or completed/
+      );
+
+      resolveInit();
+      await firstInit;
+    });
+
+    it("should throw if init is called before provide", async () => {
+      const component = Provider.define({ name: "init-without-provide" });
+      await assert.rejects(
+        component.init(),
+        /Implementation for "init-without-provide" is not provided/
+      );
+    });
+
+    it("should fallback to direct impl.init, impl.start, and impl.stop methods", async () => {
+      const calls: string[] = [];
+      const component = Provider.define({ name: "direct-impl-lifecycle" });
+      component.provide({
+        init: async () => {
+          calls.push("impl:init");
+        },
+        start: () => {
+          calls.push("impl:start");
+        },
+        stop: async () => {
+          calls.push("impl:stop");
+        },
+      });
+
+      await component.init();
+      component.start();
+      await component.stop();
+
+      assert.deepStrictEqual(calls, ["impl:init", "impl:start", "impl:stop"]);
+    });
+
+    it("should throw when start is called before provider is ready", () => {
+      const component = Provider.define({ name: "start-not-ready" });
+      component.provide({});
+      assert.throws(
+        () => component.start(),
+        /Provider "start-not-ready" is not ready/
+      );
+    });
+
+    it("should throw when start is called twice", async () => {
+      const component = Provider.define({ name: "start-twice" });
+      component.provide({});
+      await component.init();
+      component.start();
+      assert.throws(
+        () => component.start(),
+        /Provider "start-twice" start was already called/
+      );
+    });
+
+    it("should track hasStarted accurately across lifecycle", async () => {
+      const component = Provider.define({ name: "has-started-check" });
+      component.provide({});
+      assert.strictEqual(component.hasStarted, false);
+      await component.init();
+      assert.strictEqual(component.hasStarted, false);
+      component.start();
+      assert.strictEqual(component.hasStarted, true);
+      await component.stop();
+      assert.strictEqual(component.hasStarted, false);
+    });
+
+    it("should throw when stop is called before provide", async () => {
+      const component = Provider.define({ name: "stop-without-provide" });
+      await assert.rejects(
+        component.stop(),
+        /Implementation for "stop-without-provide" is not provided/
+      );
+    });
+
+    it("should warn when stop is called on an already stopped provider", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const component = Provider.define({ name: "stopped-twice" });
+        component.provide({});
+        await component.init();
+        await component.stop();
+        await component.stop();
+
+        assert.ok(
+          warnSpy.mock.calls.some(
+            c => c[0] === 'Provider "stopped-twice" is already stopped!'
+          )
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
     it("should expose lifecycle type guards", () => {
       const withStartOnly = Provider.define({ name: "start-only" });
       withStartOnly.provide({}, { start: () => undefined });
@@ -485,8 +652,23 @@ describe("Provider", () => {
       const withInitOption = Provider.define({ name: "with-init-option" });
       withInitOption.provide({}, { init: async () => undefined });
 
-      const withStop = Provider.define({ name: "impl-stop" });
-      withStop.provide({ stop: async () => undefined });
+      const withInitAndStopOption = Provider.define({
+        name: "with-init-stop-option",
+      });
+      withInitAndStopOption.provide(
+        {},
+        { init: async () => undefined, stop: async () => undefined }
+      );
+
+      const withDirectImpl = Provider.define({ name: "direct-impl" });
+      withDirectImpl.provide({
+        init: async () => undefined,
+        start: () => undefined,
+        stop: async () => undefined,
+      });
+
+      const withPlainImpl = Provider.define({ name: "plain-impl" });
+      withPlainImpl.provide({});
 
       assert.strictEqual(withStartOnly.isInitializable(), false);
       assert.strictEqual(withStartOnly.isStartable(), true);
@@ -494,8 +676,19 @@ describe("Provider", () => {
 
       assert.strictEqual(withInitOption.isInitializable(), true);
       assert.strictEqual(withInitOption.isStartable(), false);
+      assert.strictEqual(withInitOption.isStoppable(), false);
 
-      assert.strictEqual(withStop.isStoppable(), true);
+      assert.strictEqual(withInitAndStopOption.isInitializable(), true);
+      assert.strictEqual(withInitAndStopOption.isStartable(), false);
+      assert.strictEqual(withInitAndStopOption.isStoppable(), true);
+
+      assert.strictEqual(withDirectImpl.isInitializable(), true);
+      assert.strictEqual(withDirectImpl.isStartable(), true);
+      assert.strictEqual(withDirectImpl.isStoppable(), true);
+
+      assert.strictEqual(withPlainImpl.isInitializable(), false);
+      assert.strictEqual(withPlainImpl.isStartable(), false);
+      assert.strictEqual(withPlainImpl.isStoppable(), false);
     });
   });
 
@@ -735,6 +928,270 @@ describe("Provider", () => {
       await assert.rejects(
         initInDependencyOrder([providerA]),
         /cycle detected/
+      );
+    });
+  });
+
+  describe("Registry and Dependency Graphs", () => {
+    afterEach(() => {
+      Provider.reset();
+    });
+
+    it("Provider.reset clears the registry", () => {
+      Provider.reset();
+      Provider.define({ name: "to-reset" });
+      assert.strictEqual(Provider.getDependencyGraphs().length, 1);
+      Provider.reset();
+      assert.deepStrictEqual(Provider.getDependencyGraphs(), []);
+    });
+
+    it("Provider.printStatus handles empty registry without output", () => {
+      const groupSpy = vi.spyOn(console, "group").mockImplementation(() => {});
+      const groupEndSpy = vi
+        .spyOn(console, "groupEnd")
+        .mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        Provider.reset();
+        Provider.printStatus();
+        assert.strictEqual(groupSpy.mock.calls.length, 0);
+        assert.strictEqual(logSpy.mock.calls.length, 0);
+        assert.strictEqual(groupEndSpy.mock.calls.length, 0);
+      } finally {
+        groupSpy.mockRestore();
+        groupEndSpy.mockRestore();
+        logSpy.mockRestore();
+      }
+    });
+
+    it("Provider.printStatus groups providers by Initialized, Started, Stopped, Ignored", async () => {
+      const groupSpy = vi.spyOn(console, "group").mockImplementation(() => {});
+      const groupEndSpy = vi
+        .spyOn(console, "groupEnd")
+        .mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        Provider.reset();
+
+        const pInitialized = Provider.define({ name: "P_Init" });
+        pInitialized.provide({});
+        await pInitialized.init();
+
+        const pStarted = Provider.define({ name: "P_Start" });
+        pStarted.provide({});
+        await pStarted.init();
+        pStarted.start();
+
+        const pStopped = Provider.define({ name: "P_Stop" });
+        pStopped.provide({});
+        await pStopped.init();
+        await pStopped.stop();
+
+        Provider.define({ name: "P_Ignored" });
+
+        Provider.printStatus();
+
+        const groups = groupSpy.mock.calls.map(c => c[0]);
+        assert.ok(groups.includes("Providers: Initialized"));
+        assert.ok(groups.includes("Providers: Started"));
+        assert.ok(groups.includes("Providers: Stopped"));
+        assert.ok(groups.includes("Providers: Ignored"));
+
+        const logs = logSpy.mock.calls.map(c => c[0]);
+        assert.ok(logs.includes("P_Init"));
+        assert.ok(logs.includes("P_Start"));
+        assert.ok(logs.includes("P_Stop"));
+        assert.ok(logs.includes("P_Ignored"));
+
+        assert.strictEqual(groupEndSpy.mock.calls.length, 4);
+      } finally {
+        groupSpy.mockRestore();
+        groupEndSpy.mockRestore();
+        logSpy.mockRestore();
+      }
+    });
+
+    it("Provider.getDependencyGraphs partitions and sorts connected components", () => {
+      Provider.reset();
+
+      const depA = Provider.define({ name: "DepA" });
+      const rootA = Provider.define({ name: "RootA" }, [depA]);
+
+      const depB = Provider.define({ name: "DepB" });
+      const rootB = Provider.define({ name: "RootB" }, [depB]);
+
+      const single = Provider.define({ name: "Single" });
+
+      const graphs = Provider.getDependencyGraphs();
+
+      assert.strictEqual(graphs.length, 3);
+      assert.deepStrictEqual(graphs[0], [depA, rootA]);
+      assert.deepStrictEqual(graphs[1], [depB, rootB]);
+      assert.deepStrictEqual(graphs[2], [single]);
+    });
+
+    it("Provider.getDependencyGraphs handles diamond/multi-path graphs with duplicate stack entries", () => {
+      Provider.reset();
+
+      const d = Provider.define({ name: "D" });
+      const b = Provider.define({ name: "B" }, [d]);
+      const c = Provider.define({ name: "C" }, [d]);
+      const a = Provider.define({ name: "A" }, [b, c]);
+
+      const graphs = Provider.getDependencyGraphs();
+      assert.strictEqual(graphs.length, 1);
+      assert.deepStrictEqual(graphs[0], [d, b, c, a]);
+    });
+
+    it("Provider.getDependencyGraphs handles missing adjacency entry during traversal", () => {
+      Provider.reset();
+      Provider.define({ name: "P1" });
+      Provider.define({ name: "P2" });
+
+      const origGet = Map.prototype.get;
+      let adjacencyBuilt = false;
+      let returnedUndefined = false;
+
+      const getSpy = vi
+        .spyOn(Map.prototype, "get")
+        .mockImplementation(function (
+          this: Map<unknown, unknown>,
+          key: unknown
+        ) {
+          const val = origGet.call(this, key);
+          if (val instanceof Set && adjacencyBuilt && !returnedUndefined) {
+            returnedUndefined = true;
+            return undefined;
+          }
+          return val;
+        });
+
+      try {
+        adjacencyBuilt = true;
+        const graphs = Provider.getDependencyGraphs();
+        assert.strictEqual(graphs.length, 2);
+        assert.ok(returnedUndefined);
+      } finally {
+        getSpy.mockRestore();
+      }
+    });
+
+    it("Provider.getDependencyGraphs handles missing indexMap entries during sort", () => {
+      Provider.reset();
+      const p1 = Provider.define({ name: "P1" });
+      const p2 = Provider.define({ name: "P2" }, [p1]);
+
+      const origGet = Map.prototype.get;
+
+      const getSpy = vi
+        .spyOn(Map.prototype, "get")
+        .mockImplementation(function (
+          this: Map<unknown, unknown>,
+          key: unknown
+        ) {
+          const val = origGet.call(this, key);
+          if (typeof val === "number" && (key === p1 || key === p2)) {
+            return undefined;
+          }
+          return val;
+        });
+
+      try {
+        const graphs = Provider.getDependencyGraphs();
+        assert.strictEqual(graphs.length, 1);
+        assert.strictEqual(graphs[0].length, 2);
+      } finally {
+        getSpy.mockRestore();
+      }
+    });
+
+    it("Provider.getDependencyGraphs ignores dependencies not present in registry", () => {
+      const unregisteredDep = Provider.define({ name: "Unregistered" });
+      Provider.reset();
+
+      const newProvider = Provider.define({ name: "Registered" }, [
+        unregisteredDep,
+      ]);
+
+      const graphs = Provider.getDependencyGraphs();
+      assert.strictEqual(graphs.length, 1);
+      assert.deepStrictEqual(graphs[0], [newProvider]);
+    });
+
+    it("Provider.printDependencyGraphs handles empty, single, and multi-node graphs", () => {
+      const groupSpy = vi.spyOn(console, "group").mockImplementation(() => {});
+      const groupEndSpy = vi
+        .spyOn(console, "groupEnd")
+        .mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        Provider.reset();
+        Provider.printDependencyGraphs();
+        assert.ok(
+          logSpy.mock.calls.some(
+            c => c[0] === "Providers: no registered providers"
+          )
+        );
+
+        logSpy.mockClear();
+        groupSpy.mockClear();
+        groupEndSpy.mockClear();
+
+        Provider.define({ name: "Alone" });
+        Provider.printDependencyGraphs();
+
+        assert.ok(
+          groupSpy.mock.calls.some(c => c[0] === "Provider dependency graphs")
+        );
+        assert.ok(logSpy.mock.calls.some(c => c[0] === "#1 Alone"));
+
+        logSpy.mockClear();
+        groupSpy.mockClear();
+        groupEndSpy.mockClear();
+
+        Provider.reset();
+        const base = Provider.define({ name: "Base" });
+        const middle = Provider.define({ name: "Middle" }, [base]);
+        Provider.define({ name: "Top" }, [middle]);
+
+        Provider.printDependencyGraphs();
+
+        assert.ok(
+          groupSpy.mock.calls.some(c => c[0] === "Provider dependency graphs")
+        );
+        assert.ok(groupSpy.mock.calls.some(c => c[0] === "#1 (3)"));
+        assert.ok(logSpy.mock.calls.some(c => c[0] === "Base (no deps)"));
+        assert.ok(logSpy.mock.calls.some(c => c[0] === "Middle <- Base"));
+        assert.ok(logSpy.mock.calls.some(c => c[0] === "Top <- Middle"));
+      } finally {
+        groupSpy.mockRestore();
+        groupEndSpy.mockRestore();
+        logSpy.mockRestore();
+      }
+    });
+  });
+
+  describe("index exports", () => {
+    it("exports all expected symbols from root index", () => {
+      assert.strictEqual(IndexExports.Provider, Provider);
+      assert.strictEqual(
+        IndexExports.ProviderInitParamsSymbol,
+        ProviderInitParamsSymbol
+      );
+      assert.strictEqual(
+        IndexExports.initInDependencyOrder,
+        initInDependencyOrder
+      );
+      assert.strictEqual(
+        IndexExports.startInDependencyOrder,
+        startInDependencyOrder
+      );
+      assert.strictEqual(
+        IndexExports.stopInReverseDependencyOrder,
+        stopInReverseDependencyOrder
       );
     });
   });

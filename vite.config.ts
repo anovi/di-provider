@@ -16,6 +16,9 @@ export default defineConfig({
   test: {
     environment: "node",
     watch: false,
+    coverage: {
+      include: ["src/**/*.ts"],
+    },
   },
   resolve: {
     alias: {
