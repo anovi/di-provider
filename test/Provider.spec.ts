@@ -1,5 +1,12 @@
-import assert from "node:assert";
-import { afterEach, beforeEach, describe, it, vi } from "vitest";
+import {
+  afterEach,
+  assert,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   Provider,
@@ -39,22 +46,11 @@ describe("Provider", () => {
       });
 
       it("should throw when a dependency is undefined (e.g. circular import)", () => {
-        assert.throws(
-          () => {
-            Provider.define({ name: "has-bad-dep" }, [
-              undefined as unknown as Provider<unknown>,
-            ]);
-          },
-          (err: unknown) => {
-            assert.ok(err instanceof Error);
-            assert.match(
-              err.message,
-              /Provider "has-bad-dep" dependency at index 0 must be a Provider instance/
-            );
-            assert.match(err.message, /circular import/);
-            return true;
-          }
-        );
+        assert.throws(() => {
+          Provider.define({ name: "has-bad-dep" }, [
+            undefined as unknown as Provider<unknown>,
+          ]);
+        }, /Provider "has-bad-dep" dependency at index 0 must be a Provider instance[\s\S]*circular import/);
       });
 
       it("should throw when a dependency is null", () => {
@@ -87,16 +83,9 @@ describe("Provider", () => {
         for (let i = 0; i < wrongTypes.length; i++) {
           const type = wrongTypes[i];
           const name = "item" + i;
-          assert.throws(
-            () => {
-              Provider.define({ name }, [type as unknown as Provider<unknown>]);
-            },
-            err =>
-              err instanceof Error &&
-              err.message.includes(
-                "dependency at index 0 must be a Provider instance"
-              )
-          );
+          assert.throws(() => {
+            Provider.define({ name }, [type as unknown as Provider<unknown>]);
+          }, /dependency at index 0 must be a Provider instance/);
         }
       });
 
@@ -372,8 +361,8 @@ describe("Provider", () => {
         },
       });
 
-      await assert.rejects(MyComponent.init(), /some error/);
-      await assert.rejects(MyComponent.whenReady, /some error/);
+      await expect(MyComponent.init()).rejects.toThrow(/some error/);
+      await expect(MyComponent.whenReady).rejects.toThrow(/some error/);
     });
 
     it("should run stop hook on stop()", async () => {
@@ -429,7 +418,7 @@ describe("Provider", () => {
       assert.doesNotThrow(() => {
         MyComponent.impl.method();
       });
-      await assert.doesNotReject(MyComponent.stop());
+      await expect(MyComponent.stop()).resolves.toBeUndefined();
     });
 
     it("should initialize a cascade of modules", async () => {
@@ -531,8 +520,7 @@ describe("Provider", () => {
       const component = Provider.define({ name: "init-once" });
       component.bind({});
       await component.init();
-      await assert.rejects(
-        component.init(),
+      await expect(component.init()).rejects.toThrow(
         /already in progress or completed/
       );
     });
@@ -551,8 +539,7 @@ describe("Provider", () => {
       );
 
       const firstInit = component.init();
-      await assert.rejects(
-        component.init(),
+      await expect(component.init()).rejects.toThrow(
         /Provider "init-concurrent" init is already in progress or completed/
       );
 
@@ -562,8 +549,7 @@ describe("Provider", () => {
 
     it("should throw if init is called before provide", async () => {
       const component = Provider.define({ name: "init-without-provide" });
-      await assert.rejects(
-        component.init(),
+      await expect(component.init()).rejects.toThrow(
         /Implementation for "init-without-provide" is not provided/
       );
     });
@@ -624,8 +610,7 @@ describe("Provider", () => {
 
     it("should throw when stop is called before provide", async () => {
       const component = Provider.define({ name: "stop-without-provide" });
-      await assert.rejects(
-        component.stop(),
+      await expect(component.stop()).rejects.toThrow(
         /Implementation for "stop-without-provide" is not provided/
       );
     });
@@ -703,8 +688,7 @@ describe("Provider", () => {
       });
       component.bind({ id: 1 }, { init: async () => {} });
       await component.init();
-      await assert.rejects(
-        component.reconfigure({ foo: "bar" }),
+      await expect(component.reconfigure({ foo: "bar" })).rejects.toThrow(
         /does not have "reconfigure" option/
       );
     });
@@ -763,7 +747,7 @@ describe("Provider", () => {
         },
       });
       await component.init();
-      await assert.rejects(component.reconfigure({}), /reconf failed/);
+      await expect(component.reconfigure({})).rejects.toThrow(/reconf failed/);
       assert.strictEqual(component.impl, original);
     });
   });
@@ -929,8 +913,7 @@ describe("Provider", () => {
       };
       providerA.dependencies = [providerB];
 
-      await assert.rejects(
-        initInDependencyOrder([providerA]),
+      await expect(initInDependencyOrder([providerA])).rejects.toThrow(
         /cycle detected/
       );
     });

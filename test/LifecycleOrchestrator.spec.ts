@@ -1,5 +1,4 @@
-import assert from "node:assert";
-import { afterEach, describe, it, vi } from "vitest";
+import { afterEach, assert, describe, expect, it, vi } from "vitest";
 
 import { Provider } from "../src/Provider";
 import {
@@ -93,8 +92,7 @@ describe("LifecycleOrchestrator", () => {
       });
       providerA.dependencies = [providerB];
 
-      await assert.rejects(
-        initInDependencyOrder([providerA]),
+      await expect(initInDependencyOrder([providerA])).rejects.toThrow(
         /Lifecycle dependency cycle detected/
       );
     });
@@ -106,15 +104,9 @@ describe("LifecycleOrchestrator", () => {
         init: async () => {},
       });
 
-      await assert.rejects(initInDependencyOrder([bad]), (err: unknown) => {
-        assert.ok(err instanceof Error);
-        assert.match(
-          err.message,
-          /LifecycleProvider "Bad" dependency at index 0 is undefined/
-        );
-        assert.match(err.message, /circular import/);
-        return true;
-      });
+      await expect(initInDependencyOrder([bad])).rejects.toThrow(
+        /LifecycleProvider "Bad" dependency at index 0 is undefined[\s\S]*circular import/
+      );
     });
 
     it("throws when a dependency slot is null", async () => {
@@ -124,8 +116,7 @@ describe("LifecycleOrchestrator", () => {
         init: async () => {},
       });
 
-      await assert.rejects(
-        initInDependencyOrder([bad]),
+      await expect(initInDependencyOrder([bad])).rejects.toThrow(
         /LifecycleProvider "BadNull" dependency at index 0 is null/
       );
     });
@@ -150,8 +141,7 @@ describe("LifecycleOrchestrator", () => {
         stop: async () => {},
       });
 
-      await assert.rejects(
-        stopInReverseDependencyOrder([bad]),
+      await expect(stopInReverseDependencyOrder([bad])).rejects.toThrow(
         /LifecycleProvider "BadStop" dependency at index 0 is undefined/
       );
     });

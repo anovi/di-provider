@@ -15,7 +15,7 @@ A lightweight, isomorphic Dependency Injection (DI) container and lifecycle orch
 
 ## Package Highlights
 
-- **Isomorphic**: Runs in Node.js, browsers, and edge runtimes.
+- **Isomorphic**: Runs in Node.js and browsers.
 - **Zero Dependencies**: Lightweight implementation with no external runtime dependencies.
 - **Type-Safe**: Written in TypeScript with bundled type definitions (`.d.ts`).
 - **Dual Package**: Provides both ESM (`import`) and CommonJS (`require`) exports.
