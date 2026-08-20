@@ -59,9 +59,9 @@ export const UserServiceProvider = Provider.define<UserService>(
 );
 ```
 
-#### Providing an Implementation
+#### Binding an Implementation
 
-Bind a runtime instance to the provider via `.provide(instance, options?)`. Lifecycle hooks (`init`, `start`, `stop`, `reconfigure`) can be passed via options or implemented directly on the instance:
+Bind a runtime instance to the provider via `.bind(instance, options?)`. Lifecycle hooks (`init`, `start`, `stop`, `reconfigure`) can be passed via options or implemented directly on the instance:
 
 ```ts
 class PostgresDatabaseService implements DatabaseService {
@@ -70,7 +70,7 @@ class PostgresDatabaseService implements DatabaseService {
   }
 }
 
-DatabaseProvider.provide(new PostgresDatabaseService(), {
+DatabaseProvider.bind(new PostgresDatabaseService(), {
   init: async (inst, params) => {
     // Async initialization (e.g., connect to database)
   },
@@ -89,7 +89,7 @@ DatabaseProvider.provide(new PostgresDatabaseService(), {
 
 #### Accessing the Implementation
 
-Once provided, consumer services access the runtime instance via `.impl`:
+Once bound, consumer services access the runtime instance via `.impl`:
 
 ```ts
 class AppUserService implements UserService {
@@ -102,7 +102,7 @@ class AppUserService implements UserService {
   }
 }
 
-UserServiceProvider.provide(new AppUserService());
+UserServiceProvider.bind(new AppUserService());
 ```
 
 #### Parameterization & Reconfiguration
@@ -200,12 +200,12 @@ const ServerProvider = Provider.define<Server>({ name: "Server" }, [
 ]);
 ```
 
-#### 2. Provide Implementations
+#### 2. Bind Implementations
 
 ```ts
-ConfigProvider.provide({ port: 3000 });
+ConfigProvider.bind({ port: 3000 });
 
-DatabaseProvider.provide(
+DatabaseProvider.bind(
   {
     connect: async () => console.log("DB connected"),
     close: async () => console.log("DB closed"),
@@ -216,7 +216,7 @@ DatabaseProvider.provide(
   }
 );
 
-ServerProvider.provide(
+ServerProvider.bind(
   {
     listen: () => {
       console.log(
@@ -263,12 +263,12 @@ describe("UserService", () => {
   });
 
   it("works with mock database", async () => {
-    // Provide a mock implementation without touching UserService code
-    DatabaseProvider.provide({
+    // Bind a mock implementation without touching UserService code
+    DatabaseProvider.bind({
       query: async () => [{ id: "1", name: "Alice" }],
     });
 
-    UserServiceProvider.provide(new AppUserService());
+    UserServiceProvider.bind(new AppUserService());
 
     await initInDependencyOrder([UserServiceProvider]);
 

@@ -135,7 +135,7 @@ describe("Provider", () => {
     describe("Component.provide", () => {
       it("should provide an implementation for the component", async () => {
         const component = Provider.define({ name: "test" });
-        component.provide({});
+        component.bind({});
         await component.init();
         assert.ok(component.impl);
       });
@@ -151,7 +151,7 @@ describe("Provider", () => {
 
       it("should allow accessing impl when implementation is provided (even before ready)", () => {
         const component = Provider.define({ name: "test" });
-        component.provide({});
+        component.bind({});
         assert.doesNotThrow(() => {
           void component.impl;
         });
@@ -163,7 +163,7 @@ describe("Provider", () => {
         }
         const component = Provider.define<Test>({ name: "test" });
         let called = false;
-        component.provide({
+        component.bind({
           method: () => {
             called = true;
           },
@@ -178,7 +178,7 @@ describe("Provider", () => {
       it("should run without error if an implementation is a function", async () => {
         const component = Provider.define<() => void>({ name: "test" });
         let called = false;
-        component.provide(() => {
+        component.bind(() => {
           called = true;
         });
         await component.init();
@@ -219,9 +219,9 @@ describe("Provider", () => {
           called = true;
         }
       }
-      MyComponent.provide(new TestService());
-      DepsComponent.provide(new SomeServiceImpl());
-      SomeFunc.provide(() => {
+      MyComponent.bind(new TestService());
+      DepsComponent.bind(new SomeServiceImpl());
+      SomeFunc.bind(() => {
         called = true;
       });
 
@@ -254,7 +254,7 @@ describe("Provider", () => {
           this.someLazyComponent.impl.someMethod();
         }
       }
-      MyComponent.provide(new TestService());
+      MyComponent.bind(new TestService());
       await MyComponent.init();
 
       assert.throws(() => {
@@ -279,7 +279,7 @@ describe("Provider", () => {
         method() {}
       }
 
-      MyComponent.provide(new TestService(), {
+      MyComponent.bind(new TestService(), {
         init: async () => {
           initialized();
         },
@@ -318,8 +318,8 @@ describe("Provider", () => {
         someMethod() {}
       }
 
-      MyComponent.provide(new TestService(), { init: async () => {} });
-      DepsComponent.provide(new SomeServiceImpl());
+      MyComponent.bind(new TestService(), { init: async () => {} });
+      DepsComponent.bind(new SomeServiceImpl());
 
       await initInDependencyOrder([MyComponent]);
 
@@ -344,7 +344,7 @@ describe("Provider", () => {
         }
       }
 
-      MyComponent.provide(new TestService(), {
+      MyComponent.bind(new TestService(), {
         init: async (_inst, initParams) => {
           assert.deepStrictEqual(initParams, params);
         },
@@ -366,7 +366,7 @@ describe("Provider", () => {
         method() {}
       }
 
-      MyComponent.provide(new TestService(), {
+      MyComponent.bind(new TestService(), {
         init: async () => {
           throw new Error("some error");
         },
@@ -393,7 +393,7 @@ describe("Provider", () => {
         method() {}
       }
 
-      MyComponent.provide(new TestService(), {
+      MyComponent.bind(new TestService(), {
         init: async () => {},
         stop: async () => {
           stopCalled();
@@ -422,7 +422,7 @@ describe("Provider", () => {
         method() {}
       }
 
-      MyComponent.provide(new TestService(), { init: async () => {} });
+      MyComponent.bind(new TestService(), { init: async () => {} });
 
       await MyComponent.init();
 
@@ -461,9 +461,9 @@ describe("Provider", () => {
         name = "huu" as const;
       }
 
-      MyModule3.provide(new TestService3());
-      MyModule2.provide(new TestService2());
-      MyModule1.provide(new TestService1(), { init: async () => {} });
+      MyModule3.bind(new TestService3());
+      MyModule2.bind(new TestService2());
+      MyModule1.bind(new TestService1(), { init: async () => {} });
 
       await initInDependencyOrder([MyModule3]);
     });
@@ -473,7 +473,7 @@ describe("Provider", () => {
     it("should support start-only implementations", async () => {
       const component = Provider.define({ name: "start-only" });
       let started = false;
-      component.provide({
+      component.bind({
         start: () => {
           started = true;
         },
@@ -489,7 +489,7 @@ describe("Provider", () => {
       const component = Provider.define({ name: "init-stop" });
       let inited = false;
       let stopped = false;
-      component.provide({
+      component.bind({
         init: async () => {
           inited = true;
         },
@@ -508,7 +508,7 @@ describe("Provider", () => {
     it("should support init + start + stop implementations", async () => {
       const component = Provider.define({ name: "all-three" });
       const calls: string[] = [];
-      component.provide({
+      component.bind({
         init: async () => {
           calls.push("init");
         },
@@ -529,7 +529,7 @@ describe("Provider", () => {
 
     it("should throw if init is called twice", async () => {
       const component = Provider.define({ name: "init-once" });
-      component.provide({});
+      component.bind({});
       await component.init();
       await assert.rejects(
         component.init(),
@@ -540,7 +540,7 @@ describe("Provider", () => {
     it("should throw if init is called concurrently while already in progress", async () => {
       const component = Provider.define({ name: "init-concurrent" });
       let resolveInit!: () => void;
-      component.provide(
+      component.bind(
         {},
         {
           init: () =>
@@ -571,7 +571,7 @@ describe("Provider", () => {
     it("should fallback to direct impl.init, impl.start, and impl.stop methods", async () => {
       const calls: string[] = [];
       const component = Provider.define({ name: "direct-impl-lifecycle" });
-      component.provide({
+      component.bind({
         init: async () => {
           calls.push("impl:init");
         },
@@ -592,7 +592,7 @@ describe("Provider", () => {
 
     it("should throw when start is called before provider is ready", () => {
       const component = Provider.define({ name: "start-not-ready" });
-      component.provide({});
+      component.bind({});
       assert.throws(
         () => component.start(),
         /Provider "start-not-ready" is not ready/
@@ -601,7 +601,7 @@ describe("Provider", () => {
 
     it("should throw when start is called twice", async () => {
       const component = Provider.define({ name: "start-twice" });
-      component.provide({});
+      component.bind({});
       await component.init();
       component.start();
       assert.throws(
@@ -612,7 +612,7 @@ describe("Provider", () => {
 
     it("should track hasStarted accurately across lifecycle", async () => {
       const component = Provider.define({ name: "has-started-check" });
-      component.provide({});
+      component.bind({});
       assert.strictEqual(component.hasStarted, false);
       await component.init();
       assert.strictEqual(component.hasStarted, false);
@@ -634,7 +634,7 @@ describe("Provider", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       try {
         const component = Provider.define({ name: "stopped-twice" });
-        component.provide({});
+        component.bind({});
         await component.init();
         await component.stop();
         await component.stop();
@@ -651,28 +651,28 @@ describe("Provider", () => {
 
     it("should expose lifecycle type guards", () => {
       const withStartOnly = Provider.define({ name: "start-only" });
-      withStartOnly.provide({}, { start: () => undefined });
+      withStartOnly.bind({}, { start: () => undefined });
 
       const withInitOption = Provider.define({ name: "with-init-option" });
-      withInitOption.provide({}, { init: async () => undefined });
+      withInitOption.bind({}, { init: async () => undefined });
 
       const withInitAndStopOption = Provider.define({
         name: "with-init-stop-option",
       });
-      withInitAndStopOption.provide(
+      withInitAndStopOption.bind(
         {},
         { init: async () => undefined, stop: async () => undefined }
       );
 
       const withDirectImpl = Provider.define({ name: "direct-impl" });
-      withDirectImpl.provide({
+      withDirectImpl.bind({
         init: async () => undefined,
         start: () => undefined,
         stop: async () => undefined,
       });
 
       const withPlainImpl = Provider.define({ name: "plain-impl" });
-      withPlainImpl.provide({});
+      withPlainImpl.bind({});
 
       assert.strictEqual(withStartOnly.isInitializable(), false);
       assert.strictEqual(withStartOnly.isStartable(), true);
@@ -701,7 +701,7 @@ describe("Provider", () => {
       const component = Provider.define<{ id: number }>({
         name: "reconf-missing",
       });
-      component.provide({ id: 1 }, { init: async () => {} });
+      component.bind({ id: 1 }, { init: async () => {} });
       await component.init();
       await assert.rejects(
         component.reconfigure({ foo: "bar" }),
@@ -716,7 +716,7 @@ describe("Provider", () => {
       const component = Provider.define<S>({ name: "reconf-success" });
       const first: S = { value: "a" };
       const second: S = { value: "b" };
-      component.provide(first, {
+      component.bind(first, {
         init: async () => {},
         reconfigure: async inst => {
           assert.strictEqual(inst, first);
@@ -735,7 +735,7 @@ describe("Provider", () => {
       const component = Provider.define<{ n: number }>({
         name: "reconf-params",
       });
-      component.provide(
+      component.bind(
         { n: 0 },
         {
           init: async () => {},
@@ -756,7 +756,7 @@ describe("Provider", () => {
         name: "reconf-reject",
       });
       const original: { k: boolean } = { k: false };
-      component.provide(original, {
+      component.bind(original, {
         init: async () => {},
         reconfigure: async () => {
           throw new Error("reconf failed");
@@ -775,7 +775,7 @@ describe("Provider", () => {
       component.on("ready", () => {
         calls.push("ready");
       });
-      component.provide({}, { init: async () => undefined });
+      component.bind({}, { init: async () => undefined });
 
       await component.init();
 
@@ -791,7 +791,7 @@ describe("Provider", () => {
       component.on("ready", () => {
         calls.push("b");
       });
-      component.provide({}, { init: async () => undefined });
+      component.bind({}, { init: async () => undefined });
 
       await component.init();
 
@@ -804,7 +804,7 @@ describe("Provider", () => {
       component.on("start", () => {
         calls.push("start");
       });
-      component.provide(
+      component.bind(
         {},
         { init: async () => undefined, start: () => undefined }
       );
@@ -821,7 +821,7 @@ describe("Provider", () => {
       component.on("stop", () => {
         calls.push("stop");
       });
-      component.provide(
+      component.bind(
         {},
         { init: async () => undefined, stop: async () => undefined }
       );
@@ -844,7 +844,7 @@ describe("Provider", () => {
       component.on("stop", () => {
         calls.push("stop");
       });
-      component.provide({
+      component.bind({
         init: async () => undefined,
         start: () => undefined,
         stop: async () => undefined,
@@ -865,7 +865,7 @@ describe("Provider", () => {
       const moduleB = Provider.define({ name: "B" }, [moduleA]);
       const moduleC = Provider.define({ name: "C" }, [moduleB]);
 
-      moduleA.provide({
+      moduleA.bind({
         init: async () => {
           calls.push("A:init");
         },
@@ -876,7 +876,7 @@ describe("Provider", () => {
           calls.push("A:stop");
         },
       });
-      moduleB.provide({
+      moduleB.bind({
         init: async () => {
           calls.push("B:init");
         },
@@ -887,7 +887,7 @@ describe("Provider", () => {
           calls.push("B:stop");
         },
       });
-      moduleC.provide({
+      moduleC.bind({
         init: async () => {
           calls.push("C:init");
         },
@@ -980,16 +980,16 @@ describe("Provider", () => {
         Provider.reset();
 
         const pInitialized = Provider.define({ name: "P_Init" });
-        pInitialized.provide({});
+        pInitialized.bind({});
         await pInitialized.init();
 
         const pStarted = Provider.define({ name: "P_Start" });
-        pStarted.provide({});
+        pStarted.bind({});
         await pStarted.init();
         pStarted.start();
 
         const pStopped = Provider.define({ name: "P_Stop" });
-        pStopped.provide({});
+        pStopped.bind({});
         await pStopped.init();
         await pStopped.stop();
 

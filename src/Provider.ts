@@ -71,36 +71,75 @@ export type ProviderLifecycleOptions<S> =
     };
 
 export interface IProvider<S, P = undefined> {
+  /** Unique identifier or name of the provider. */
   readonly name: string;
+  /** True if the provider has completed initialization and is ready for use. */
   readonly isReady: boolean;
+  /** Promise that resolves when the provider has been successfully initialized. */
   readonly whenReady: Promise<void>;
+  /** Number of direct dependencies declared for this provider. */
   readonly depsLength: number;
+  /** True after start has completed successfully. */
   readonly hasStarted: boolean;
+  /** Direct dependencies declared for this provider. */
   readonly dependencies?: IProvider<any, any>[] | undefined;
+  /** Initialization parameters stored on the provider symbol. */
   [ProviderInitParamsSymbol]: P;
 
+  /**
+   * Runtime implementation.
+   * @throws Error if accessed before implementation is bound.
+   */
   impl: S;
 
+  /** Initializes the provider and its implementation. */
   init?: (inst: S) => Promise<void>;
+  /** Starts the provider after initialization. */
   start?: (inst: S) => void;
+  /** Stops the provider and executes teardown hooks. */
   stop?: (inst: S) => Promise<void>;
 
+  /**
+   * Defines and registers a new Provider instance.
+   * @param props Configuration properties containing the provider name
+   * @param deps Optional array of Provider instances this provider depends on
+   */
   define: <S>(
     props: ProviderProps,
     deps?: Provider<any, any>[]
   ) => IProvider<S>;
 
-  // Type guards
+  /** Checks whether the provider defines an `init` lifecycle hook. */
   isInitializable: () => this is InitializableProvider<S>;
+  /** Checks whether the provider defines a `start` lifecycle hook. */
   isStartable: () => this is StartableProvider<S>;
+  /** Checks whether the provider defines a `stop` lifecycle hook. */
   isStoppable: () => this is StoppableProvider<S>;
 
-  provide: (impl: S, options?: ProviderLifecycleOptions<S>) => void;
+  /**
+   * Binds the runtime implementation and optional lifecycle hooks to this provider.
+   * @param impl The concrete service implementation
+   * @param options Optional lifecycle hooks (`init`, `start`, `stop`, `reconfigure`)
+   */
+  bind: (impl: S, options?: ProviderLifecycleOptions<S>) => void;
 
+  /**
+   * Registers a callback listener for provider lifecycle events.
+   * @param event Lifecycle event name (`"ready"`, `"start"`, or `"stop"`)
+   * @param callback Function to invoke when the event occurs
+   */
   on: (event: "ready" | "start" | "stop", callback: () => void) => void;
 
+  /**
+   * Sets parameters to be passed to the provider's `init` hook.
+   * @param params Initialization parameters
+   */
   withParams: (params: unknown) => IProvider<S, P>;
 
+  /**
+   * Dynamically reconfigures the provider implementation using its configured `reconfigure` hook.
+   * @param params Reconfiguration parameters
+   */
   reconfigure: (params: unknown) => Promise<IProvider<S, P>>;
 }
 
@@ -328,18 +367,18 @@ export class Provider<
   }
 
   /**
-   * Provides the runtime implementation and optional lifecycle hooks for this provider.
+   * Binds the runtime implementation and optional lifecycle hooks for this provider.
    * @param impl The concrete service implementation
    * @param options Optional lifecycle hooks (`init`, `start`, `stop`, `reconfigure`)
    */
-  provide(impl: S, options?: ProviderLifecycleOptions<S>): void {
+  bind(impl: S, options?: ProviderLifecycleOptions<S>): void {
     this.implementation = impl;
     this.lifecycleOptions = options;
   }
 
   /**
    * Accesses the runtime implementation.
-   * @throws Error if the implementation has not been provided yet.
+   * @throws Error if the implementation has not been bound yet.
    */
   get impl(): S {
     if (!this.implementation) {
@@ -505,7 +544,7 @@ export class Provider<
       !this.lifecycleOptions.reconfigure
     ) {
       throw new Error(
-        `Provider "${this.name}" does not have "reconfigure" option. It needs to be set via ".provide(inst, options)"`
+        `Provider "${this.name}" does not have "reconfigure" option. It needs to be set via ".bind(inst, options)"`
       );
     }
     this[ProviderInitParamsSymbol] = params as any;

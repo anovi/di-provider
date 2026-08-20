@@ -273,7 +273,7 @@ describe("LifecycleOrchestrator", () => {
         Shared,
       ]);
 
-      Shared.provide(
+      Shared.bind(
         { k: 0 },
         {
           init: async () => {
@@ -281,7 +281,7 @@ describe("LifecycleOrchestrator", () => {
           },
         }
       );
-      Root1.provide(
+      Root1.bind(
         { k: 1 },
         {
           init: async () => {
@@ -289,7 +289,7 @@ describe("LifecycleOrchestrator", () => {
           },
         }
       );
-      Root2.provide(
+      Root2.bind(
         { k: 2 },
         {
           init: async () => {
@@ -334,7 +334,7 @@ describe("LifecycleOrchestrator", () => {
         [Shared]
       );
 
-      Shared.provide(
+      Shared.bind(
         { k: 0 },
         {
           init: async () => {},
@@ -343,7 +343,7 @@ describe("LifecycleOrchestrator", () => {
           },
         }
       );
-      Root1.provide(
+      Root1.bind(
         { k: 1 },
         {
           init: async () => {},
@@ -352,7 +352,7 @@ describe("LifecycleOrchestrator", () => {
           },
         }
       );
-      Root2.provide(
+      Root2.bind(
         { k: 2 },
         {
           init: async () => {},
