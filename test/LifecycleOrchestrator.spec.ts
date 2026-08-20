@@ -1,5 +1,4 @@
-import assert from "node:assert";
-import { afterEach, describe, it } from "vitest";
+import { afterEach, assert, describe, expect, it, vi } from "vitest";
 
 import { Provider } from "../src/Provider";
 import {
@@ -57,17 +56,32 @@ describe("LifecycleOrchestrator", () => {
           calls.push("Shared:init");
         },
       });
-      const providerConsumer = createProvider({
-        name: "Consumer",
+      const providerConsumerA = createProvider({
+        name: "ConsumerA",
         dependencies: [providerShared],
         init: async () => {
-          calls.push("Consumer:init");
+          calls.push("ConsumerA:init");
+        },
+      });
+      const providerConsumerB = createProvider({
+        name: "ConsumerB",
+        dependencies: [providerShared],
+        init: async () => {
+          calls.push("ConsumerB:init");
         },
       });
 
-      await initInDependencyOrder([providerShared, providerConsumer]);
+      await initInDependencyOrder([
+        providerShared,
+        providerConsumerA,
+        providerConsumerB,
+      ]);
 
-      assert.deepStrictEqual(calls, ["Shared:init", "Consumer:init"]);
+      assert.deepStrictEqual(calls, [
+        "Shared:init",
+        "ConsumerA:init",
+        "ConsumerB:init",
+      ]);
     });
 
     it("throws when a dependency cycle exists", async () => {
@@ -78,8 +92,7 @@ describe("LifecycleOrchestrator", () => {
       });
       providerA.dependencies = [providerB];
 
-      await assert.rejects(
-        initInDependencyOrder([providerA]),
+      await expect(initInDependencyOrder([providerA])).rejects.toThrow(
         /Lifecycle dependency cycle detected/
       );
     });
@@ -91,15 +104,9 @@ describe("LifecycleOrchestrator", () => {
         init: async () => {},
       });
 
-      await assert.rejects(initInDependencyOrder([bad]), (err: unknown) => {
-        assert.ok(err instanceof Error);
-        assert.match(
-          err.message,
-          /LifecycleProvider "Bad" dependency at index 0 is undefined/
-        );
-        assert.match(err.message, /circular import/);
-        return true;
-      });
+      await expect(initInDependencyOrder([bad])).rejects.toThrow(
+        /LifecycleProvider "Bad" dependency at index 0 is undefined[\s\S]*circular import/
+      );
     });
 
     it("throws when a dependency slot is null", async () => {
@@ -109,8 +116,7 @@ describe("LifecycleOrchestrator", () => {
         init: async () => {},
       });
 
-      await assert.rejects(
-        initInDependencyOrder([bad]),
+      await expect(initInDependencyOrder([bad])).rejects.toThrow(
         /LifecycleProvider "BadNull" dependency at index 0 is null/
       );
     });
@@ -135,10 +141,105 @@ describe("LifecycleOrchestrator", () => {
         stop: async () => {},
       });
 
-      await assert.rejects(
-        stopInReverseDependencyOrder([bad]),
+      await expect(stopInReverseDependencyOrder([bad])).rejects.toThrow(
         /LifecycleProvider "BadStop" dependency at index 0 is undefined/
       );
+    });
+
+    it("skips providers that do not have an init hook", async () => {
+      const calls: string[] = [];
+      const providerA = createProvider({ name: "A" });
+      const providerB = createProvider({
+        name: "B",
+        dependencies: [providerA],
+        init: async () => {
+          calls.push("B:init");
+        },
+      });
+
+      await initInDependencyOrder([providerB]);
+
+      assert.deepStrictEqual(calls, ["B:init"]);
+    });
+
+    it("logs progress when logs is true", async () => {
+      const groupSpy = vi.spyOn(console, "group").mockImplementation(() => {});
+      const groupEndSpy = vi
+        .spyOn(console, "groupEnd")
+        .mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        const providerA = createProvider({
+          name: "A",
+          init: async () => {},
+        });
+        const providerB = createProvider({
+          name: "B",
+          dependencies: [providerA],
+          init: async () => {},
+        });
+
+        await initInDependencyOrder([providerB], true);
+
+        assert.strictEqual(groupSpy.mock.calls[0]?.[0], "B");
+        assert.ok(logSpy.mock.calls.some(c => c[0] === "Init of: A"));
+        assert.ok(logSpy.mock.calls.some(c => c[0] === "Init of: B"));
+        assert.strictEqual(groupEndSpy.mock.calls.length, 1);
+      } finally {
+        groupSpy.mockRestore();
+        groupEndSpy.mockRestore();
+        logSpy.mockRestore();
+      }
+    });
+
+    it("logs skip when provider is already ready and multiple roots are used", async () => {
+      const groupSpy = vi.spyOn(console, "group").mockImplementation(() => {});
+      const groupEndSpy = vi
+        .spyOn(console, "groupEnd")
+        .mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        const providerA = Object.assign(
+          createProvider({
+            name: "A",
+            init: async () => {},
+          }),
+          { isReady: true }
+        );
+        const providerB = createProvider({
+          name: "B",
+          init: async () => {},
+        });
+
+        await initInDependencyOrder([providerA, providerB], true);
+
+        assert.strictEqual(groupSpy.mock.calls[0]?.[0], "A, B");
+        assert.ok(
+          logSpy.mock.calls.some(c => c[0] === "Skip init (already ready): A")
+        );
+        assert.ok(logSpy.mock.calls.some(c => c[0] === "Init of: B"));
+      } finally {
+        groupSpy.mockRestore();
+        groupEndSpy.mockRestore();
+        logSpy.mockRestore();
+      }
+    });
+
+    it("logs group name as Lifecycle when empty list of providers is given", async () => {
+      const groupSpy = vi.spyOn(console, "group").mockImplementation(() => {});
+      const groupEndSpy = vi
+        .spyOn(console, "groupEnd")
+        .mockImplementation(() => {});
+
+      try {
+        await initInDependencyOrder([], true);
+        assert.strictEqual(groupSpy.mock.calls[0]?.[0], "Lifecycle");
+      } finally {
+        groupSpy.mockRestore();
+        groupEndSpy.mockRestore();
+      }
     });
   });
 
@@ -162,7 +263,7 @@ describe("LifecycleOrchestrator", () => {
         Shared,
       ]);
 
-      Shared.provide(
+      Shared.bind(
         { k: 0 },
         {
           init: async () => {
@@ -170,7 +271,7 @@ describe("LifecycleOrchestrator", () => {
           },
         }
       );
-      Root1.provide(
+      Root1.bind(
         { k: 1 },
         {
           init: async () => {
@@ -178,7 +279,7 @@ describe("LifecycleOrchestrator", () => {
           },
         }
       );
-      Root2.provide(
+      Root2.bind(
         { k: 2 },
         {
           init: async () => {
@@ -223,7 +324,7 @@ describe("LifecycleOrchestrator", () => {
         [Shared]
       );
 
-      Shared.provide(
+      Shared.bind(
         { k: 0 },
         {
           init: async () => {},
@@ -232,7 +333,7 @@ describe("LifecycleOrchestrator", () => {
           },
         }
       );
-      Root1.provide(
+      Root1.bind(
         { k: 1 },
         {
           init: async () => {},
@@ -241,7 +342,7 @@ describe("LifecycleOrchestrator", () => {
           },
         }
       );
-      Root2.provide(
+      Root2.bind(
         { k: 2 },
         {
           init: async () => {},
@@ -301,6 +402,74 @@ describe("LifecycleOrchestrator", () => {
       startInDependencyOrder([providerC]);
 
       assert.deepStrictEqual(calls, ["A:start", "B:start", "C:start"]);
+    });
+
+    it("skips providers that do not have a start hook", () => {
+      const calls: string[] = [];
+      const providerA = createProvider({ name: "A" });
+      const providerB = createProvider({
+        name: "B",
+        dependencies: [providerA],
+        start: () => {
+          calls.push("B:start");
+        },
+      });
+
+      startInDependencyOrder([providerB]);
+
+      assert.deepStrictEqual(calls, ["B:start"]);
+    });
+
+    it("logs group name as Lifecycle when empty list of providers is given to start", () => {
+      const groupSpy = vi.spyOn(console, "group").mockImplementation(() => {});
+      const groupEndSpy = vi
+        .spyOn(console, "groupEnd")
+        .mockImplementation(() => {});
+
+      try {
+        startInDependencyOrder([], true);
+        assert.strictEqual(groupSpy.mock.calls[0]?.[0], "Lifecycle");
+      } finally {
+        groupSpy.mockRestore();
+        groupEndSpy.mockRestore();
+      }
+    });
+
+    it("logs progress and skips already started providers when logs is true", () => {
+      const groupSpy = vi.spyOn(console, "group").mockImplementation(() => {});
+      const groupEndSpy = vi
+        .spyOn(console, "groupEnd")
+        .mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        const providerA = Object.assign(
+          createProvider({
+            name: "A",
+            start: () => {},
+          }),
+          { hasStarted: true }
+        );
+        const providerB = createProvider({
+          name: "B",
+          start: () => {},
+        });
+
+        startInDependencyOrder([providerA, providerB], true);
+
+        assert.strictEqual(groupSpy.mock.calls[0]?.[0], "A, B");
+        assert.ok(
+          logSpy.mock.calls.some(
+            c => c[0] === "Skip start (already started): A"
+          )
+        );
+        assert.ok(logSpy.mock.calls.some(c => c[0] === "Starting: B"));
+        assert.strictEqual(groupEndSpy.mock.calls.length, 1);
+      } finally {
+        groupSpy.mockRestore();
+        groupEndSpy.mockRestore();
+        logSpy.mockRestore();
+      }
     });
 
     it("should start separate graphs independently", () => {
@@ -378,6 +547,69 @@ describe("LifecycleOrchestrator", () => {
       await stopInReverseDependencyOrder([providerB]);
 
       assert.deepStrictEqual(calls, ["B:stop"]);
+    });
+
+    it("logs progress when logs is true", async () => {
+      const groupSpy = vi.spyOn(console, "group").mockImplementation(() => {});
+      const groupEndSpy = vi
+        .spyOn(console, "groupEnd")
+        .mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        const providerA = createProvider({
+          name: "A",
+          stop: async () => {},
+        });
+        const providerB = createProvider({
+          name: "B",
+          dependencies: [providerA],
+          stop: async () => {},
+        });
+
+        await stopInReverseDependencyOrder([providerB], true);
+
+        assert.strictEqual(groupSpy.mock.calls[0]?.[0], "B");
+        assert.ok(logSpy.mock.calls.some(c => c[0] === "Stopping: B"));
+        assert.ok(logSpy.mock.calls.some(c => c[0] === "Stopping: A"));
+        assert.strictEqual(groupEndSpy.mock.calls.length, 1);
+      } finally {
+        groupSpy.mockRestore();
+        groupEndSpy.mockRestore();
+        logSpy.mockRestore();
+      }
+    });
+
+    it("logs group name as Lifecycle when empty list is given to stop", async () => {
+      const groupSpy = vi.spyOn(console, "group").mockImplementation(() => {});
+      const groupEndSpy = vi
+        .spyOn(console, "groupEnd")
+        .mockImplementation(() => {});
+
+      try {
+        await stopInReverseDependencyOrder([], true);
+        assert.strictEqual(groupSpy.mock.calls[0]?.[0], "Lifecycle");
+      } finally {
+        groupSpy.mockRestore();
+        groupEndSpy.mockRestore();
+      }
+    });
+
+    it("logs multiple roots when given to stop", async () => {
+      const groupSpy = vi.spyOn(console, "group").mockImplementation(() => {});
+      const groupEndSpy = vi
+        .spyOn(console, "groupEnd")
+        .mockImplementation(() => {});
+
+      try {
+        const providerA = createProvider({ name: "A", stop: async () => {} });
+        const providerB = createProvider({ name: "B", stop: async () => {} });
+        await stopInReverseDependencyOrder([providerA, providerB], true);
+        assert.strictEqual(groupSpy.mock.calls[0]?.[0], "A, B");
+      } finally {
+        groupSpy.mockRestore();
+        groupEndSpy.mockRestore();
+      }
     });
   });
 });

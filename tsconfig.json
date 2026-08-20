@@ -21,12 +21,6 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": [
-    "src",
-    "test",
-    "vite.config.ts",
-    "eslint.config.ts",
-    "dts-bundle-generator.config.ts"
-  ],
+  "include": ["src", "test", "vite.config.ts", "eslint.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

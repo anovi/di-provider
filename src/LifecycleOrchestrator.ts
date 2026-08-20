@@ -38,8 +38,8 @@ function getDependencies<I>(
 }
 
 /** Provider instances from {@link Provider} expose `isReady` after successful init. */
-function isLifecycleProviderAlreadyReady(
-  provider: LifecycleProvider<unknown>
+function isLifecycleProviderAlreadyReady<I>(
+  provider: LifecycleProvider<I>
 ): boolean {
   return (
     "isReady" in provider && (provider as { isReady: boolean }).isReady === true
@@ -47,8 +47,8 @@ function isLifecycleProviderAlreadyReady(
 }
 
 /** Provider instances from {@link Provider} expose `hasStarted` after {@link Provider.start}. */
-function isLifecycleProviderAlreadyStarted(
-  provider: LifecycleProvider<unknown>
+function isLifecycleProviderAlreadyStarted<I>(
+  provider: LifecycleProvider<I>
 ): boolean {
   return (
     "hasStarted" in provider &&
@@ -104,6 +104,14 @@ function topologicalSort<I>(
   return ordered;
 }
 
+/**
+ * Asynchronously initializes an array of providers in topological dependency order.
+ * Dependencies are initialized before the providers that depend on them.
+ *
+ * @param providers Providers to initialize (can be roots or any subset of the graph)
+ * @param logs Whether to log lifecycle progress to the console
+ * @throws Error if a dependency cycle or invalid dependency reference is detected
+ */
 export async function initInDependencyOrder<I>(
   providers: LifecycleProvider<I>[],
   logs?: boolean
@@ -126,6 +134,14 @@ export async function initInDependencyOrder<I>(
   }
 }
 
+/**
+ * Starts an array of providers in topological dependency order.
+ * Dependencies are started before the providers that depend on them.
+ *
+ * @param providers Providers to start
+ * @param logs Whether to log lifecycle progress to the console
+ * @throws Error if a dependency cycle or invalid dependency reference is detected
+ */
 export function startInDependencyOrder<I>(
   providers: LifecycleProvider<I>[],
   logs?: boolean
@@ -149,6 +165,14 @@ export function startInDependencyOrder<I>(
   }
 }
 
+/**
+ * Asynchronously stops an array of providers in reverse topological dependency order.
+ * Dependents are stopped before their dependencies.
+ *
+ * @param providers Providers to stop
+ * @param logs Whether to log lifecycle progress to the console
+ * @throws Error if a dependency cycle or invalid dependency reference is detected
+ */
 export async function stopInReverseDependencyOrder<I>(
   providers: LifecycleProvider<I>[],
   logs?: boolean

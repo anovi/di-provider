@@ -21,6 +21,16 @@ type StoppableProvider<S> = IProvider<S> & Stoppable;
 
 export const ProviderInitParamsSymbol = Symbol("ProviderInitParams");
 
+export const ProviderState = {
+  IDLE: "idle",
+  INITIALIZING: "initializing",
+  READY: "ready",
+  STARTED: "started",
+  STOPPED: "stopped",
+} as const;
+
+export type ProviderState = (typeof ProviderState)[keyof typeof ProviderState];
+
 function formatInvalidDependencyEntry(dep: unknown): string {
   if (dep === undefined) return "undefined";
   if (dep === null) return "null";
@@ -61,37 +71,75 @@ export type ProviderLifecycleOptions<S> =
     };
 
 export interface IProvider<S, P = undefined> {
+  /** Unique identifier or name of the provider. */
   readonly name: string;
+  /** True if the provider has completed initialization and is ready for use. */
   readonly isReady: boolean;
+  /** Promise that resolves when the provider has been successfully initialized. */
   readonly whenReady: Promise<void>;
+  /** Number of direct dependencies declared for this provider. */
   readonly depsLength: number;
+  /** True after start has completed successfully. */
+  readonly hasStarted: boolean;
+  /** Direct dependencies declared for this provider. */
+  readonly dependencies?: IProvider<any, any>[] | undefined;
+  /** Initialization parameters stored on the provider symbol. */
   [ProviderInitParamsSymbol]: P;
 
-  /** Runtime implementation. Access only when the service is ready. */
+  /**
+   * Runtime implementation.
+   * @throws Error if accessed before implementation is bound.
+   */
   impl: S;
 
+  /** Initializes the provider and its implementation. */
   init?: (inst: S) => Promise<void>;
+  /** Starts the provider after initialization. */
   start?: (inst: S) => void;
+  /** Stops the provider and executes teardown hooks. */
   stop?: (inst: S) => Promise<void>;
 
+  /**
+   * Defines and registers a new Provider instance.
+   * @param props Configuration properties containing the provider name
+   * @param deps Optional array of Provider instances this provider depends on
+   */
   define: <S>(
     props: ProviderProps,
     deps?: Provider<any, any>[]
   ) => IProvider<S>;
 
-  /** Type guards */
+  /** Checks whether the provider defines an `init` lifecycle hook. */
   isInitializable: () => this is InitializableProvider<S>;
+  /** Checks whether the provider defines a `start` lifecycle hook. */
   isStartable: () => this is StartableProvider<S>;
+  /** Checks whether the provider defines a `stop` lifecycle hook. */
   isStoppable: () => this is StoppableProvider<S>;
 
-  /** Provide runtime implementation of a defined service. */
-  provide: (impl: S, options?: ProviderLifecycleOptions<S>) => void;
+  /**
+   * Binds the runtime implementation and optional lifecycle hooks to this provider.
+   * @param impl The concrete service implementation
+   * @param options Optional lifecycle hooks (`init`, `start`, `stop`, `reconfigure`)
+   */
+  bind: (impl: S, options?: ProviderLifecycleOptions<S>) => void;
 
+  /**
+   * Registers a callback listener for provider lifecycle events.
+   * @param event Lifecycle event name (`"ready"`, `"start"`, or `"stop"`)
+   * @param callback Function to invoke when the event occurs
+   */
   on: (event: "ready" | "start" | "stop", callback: () => void) => void;
 
-  /** Set parameters for the provider initialization. */
+  /**
+   * Sets parameters to be passed to the provider's `init` hook.
+   * @param params Initialization parameters
+   */
   withParams: (params: unknown) => IProvider<S, P>;
 
+  /**
+   * Dynamically reconfigures the provider implementation using its configured `reconfigure` hook.
+   * @param params Reconfiguration parameters
+   */
   reconfigure: (params: unknown) => Promise<IProvider<S, P>>;
 }
 
@@ -99,41 +147,56 @@ export class Provider<
   S,
   DepsProviders extends Provider<any, any>[] | undefined = undefined,
 > implements IProvider<S> {
+  /** When provider is initialized  */
   readonly whenReady: Promise<void>;
-  readonly ready: Promise<void>;
 
   [ProviderInitParamsSymbol] = undefined;
 
-  private static _registry = new Set<Provider<any, any>>();
-
+  /** Unique identifier or name of the provider. */
   get name(): string {
     return this.props.name;
   }
 
+  /** Number of direct dependencies declared for this provider. */
   get depsLength(): number {
     if (this.dependenciesList === undefined) return 0;
     return this.dependenciesList.length;
   }
 
+  /** True if the provider has completed initialization and is ready for use. */
   get isReady(): boolean {
-    return this.isProviderReady;
+    return (
+      this.state === ProviderState.READY || this.state === ProviderState.STARTED
+    );
   }
 
-  /** True after {@link start} has completed successfully (for idempotent lifecycle orchestration). */
+  /** True after {@link start} has completed successfully. */
   get hasStarted(): boolean {
-    return this.isStarted;
+    return this.state === ProviderState.STARTED;
   }
 
+  /** Direct dependencies declared for this provider. */
   get dependencies(): DepsProviders | undefined {
     return this.dependenciesList;
   }
 
+  /**
+   * Registers a callback listener for provider lifecycle events.
+   * @param event Lifecycle event name (`"ready"`, `"start"`, or `"stop"`)
+   * @param callback Function to invoke when the event occurs
+   */
   on(event: "ready" | "start" | "stop", callback: () => void): void {
-    if (event === "ready") this.readyCallbacks.push(callback);
-    else if (event === "start") this.startCallbacks.push(callback);
-    else this.stopCallbacks.push(callback);
+    if (event === "ready") (this.readyCallbacks ??= []).push(callback);
+    else if (event === "start") (this.startCallbacks ??= []).push(callback);
+    else (this.stopCallbacks ??= []).push(callback);
   }
 
+  /**
+   * Defines and registers a new Provider with explicit dependencies.
+   * @param props Configuration properties containing the provider name
+   * @param deps Optional array of Provider instances this provider depends on
+   * @returns A new Provider instance
+   */
   static define<S>(props: ProviderProps, deps?: Provider<any, any>[]) {
     assertValidDependencyList(props.name, deps);
     const instance = new Provider<S, typeof deps>(props, deps);
@@ -151,10 +214,11 @@ export class Provider<
 
     for (let index = 0; index < all.length; index++) {
       const p = all[index];
-      if (p.isProviderReady) {
-        if (!p.isStarted && !p.isStopped) initialized.push(p);
-        else started.push(p);
-      } else if (p.isStopped) {
+      if (p.state === ProviderState.READY) {
+        initialized.push(p);
+      } else if (p.state === ProviderState.STARTED) {
+        started.push(p);
+      } else if (p.state === ProviderState.STOPPED) {
         stopped.push(p);
       } else {
         ignored.push(p);
@@ -287,36 +351,50 @@ export class Provider<
     console.groupEnd();
   }
 
+  /** Clears the global registry of providers. */
   static reset(): void {
     this._registry.clear();
   }
 
+  /**
+   * Defines and registers a new Provider with explicit dependencies.
+   * @param props Configuration properties containing the provider name
+   * @param deps Optional array of Provider instances this provider depends on
+   * @returns A new Provider instance
+   */
   define<T>(props: ProviderProps, deps?: Provider<any, any>[]): IProvider<T> {
     return Provider.define<T>(props, deps);
   }
 
-  /** Provide runtime implementation and optional lifecycle hooks (init, start, stop). */
-  provide(impl: S, options?: ProviderLifecycleOptions<S>): void {
+  /**
+   * Binds the runtime implementation and optional lifecycle hooks for this provider.
+   * @param impl The concrete service implementation
+   * @param options Optional lifecycle hooks (`init`, `start`, `stop`, `reconfigure`)
+   */
+  bind(impl: S, options?: ProviderLifecycleOptions<S>): void {
     this.implementation = impl;
     this.lifecycleOptions = options;
   }
 
+  /**
+   * Accesses the runtime implementation.
+   * @throws Error if the implementation has not been bound yet.
+   */
   get impl(): S {
     if (!this.implementation) {
       const error = Error(`Implementation for "${this.name}" is not provided`);
       console.error(error.stack);
       throw error;
     }
-    // if (!this.isProviderReady) {
-    // 	const error = Error(`Provider "${this.name}" is not ready`);
-    // 	console.error(error.stack);
-    // 	throw error;
-    // }
     return this.implementation;
   }
 
+  /**
+   * Initializes the provider and its implementation, marking it as ready.
+   * @throws Error if init is already in progress, already completed, or if implementation is missing.
+   */
   async init(): Promise<void> {
-    if (this.isInitializing || this.isProviderReady) {
+    if (this.state === ProviderState.INITIALIZING || this.isReady) {
       throw new Error(
         `Provider "${this.name}" init is already in progress or completed`
       );
@@ -325,7 +403,7 @@ export class Provider<
       throw new Error(`Implementation for "${this.name}" is not provided`);
     }
 
-    this.isInitializing = true;
+    this.state = ProviderState.INITIALIZING;
     try {
       if (
         this.lifecycleOptions &&
@@ -342,19 +420,21 @@ export class Provider<
 
       this.markReady();
     } catch (error) {
+      this.state = ProviderState.IDLE;
       this.markBroken(error);
       throw error;
-    } finally {
-      this.isInitializing = false;
-      this.isStopped = false;
     }
   }
 
+  /**
+   * Starts the provider after it has been initialized.
+   * @throws Error if the provider is not ready or already started.
+   */
   start(): void {
-    if (!this.isProviderReady) {
+    if (!this.isReady) {
       throw new Error(`Provider "${this.name}" is not ready`);
     }
-    if (this.isStarted) {
+    if (this.state === ProviderState.STARTED) {
       throw new Error(`Provider "${this.name}" start was already called`);
     }
 
@@ -368,14 +448,20 @@ export class Provider<
       (this.implementation as any).start();
     }
 
-    this.isStarted = true;
-    this.isStopped = false;
-    for (const cb of this.startCallbacks) cb();
+    this.state = ProviderState.STARTED;
+    if (this.startCallbacks) {
+      for (const cb of this.startCallbacks) cb();
+    }
   }
 
+  /**
+   * Stops the provider and executes teardown hooks.
+   * @throws Error if the implementation is not provided.
+   */
   async stop(): Promise<void> {
-    if (this.isStopped)
+    if (this.state === ProviderState.STOPPED) {
       console.warn(`Provider "${this.name}" is already stopped!`);
+    }
     if (!this.implementation) {
       throw new Error(`Implementation for "${this.name}" is not provided`);
     }
@@ -390,13 +476,15 @@ export class Provider<
       await (this.implementation as any).stop();
     }
 
-    this.isInitializing = false;
-    this.isStarted = false;
-    this.isProviderReady = false;
-    this.isStopped = true;
-    for (const cb of this.stopCallbacks) cb();
+    this.state = ProviderState.STOPPED;
+    if (this.stopCallbacks) {
+      for (const cb of this.stopCallbacks) cb();
+    }
   }
 
+  /**
+   * Checks whether the provider defines an `init` lifecycle hook.
+   */
   isInitializable(): this is InitializableProvider<S> {
     if (
       this.lifecycleOptions &&
@@ -407,6 +495,9 @@ export class Provider<
     return typeof (this.implementation as any)?.init === "function";
   }
 
+  /**
+   * Checks whether the provider defines a `start` lifecycle hook.
+   */
   isStartable(): this is StartableProvider<S> {
     if (
       this.lifecycleOptions &&
@@ -417,6 +508,9 @@ export class Provider<
     return typeof (this.implementation as any)?.start === "function";
   }
 
+  /**
+   * Checks whether the provider defines a `stop` lifecycle hook.
+   */
   isStoppable(): this is StoppableProvider<S> {
     if (
       this.lifecycleOptions &&
@@ -427,11 +521,22 @@ export class Provider<
     return typeof (this.implementation as any)?.stop === "function";
   }
 
+  /**
+   * Sets parameters to be passed to the provider's `init` hook.
+   * @param params Initialization parameters
+   * @returns The provider instance
+   */
   withParams(params: unknown): this {
     this[ProviderInitParamsSymbol] = params as any;
     return this;
   }
 
+  /**
+   * Dynamically reconfigures the provider implementation using its configured `reconfigure` hook.
+   * @param params Reconfiguration parameters
+   * @returns The updated provider instance
+   * @throws Error if the provider does not have a `reconfigure` lifecycle option.
+   */
   async reconfigure(params: unknown): Promise<this> {
     if (
       !this.lifecycleOptions ||
@@ -439,7 +544,7 @@ export class Provider<
       !this.lifecycleOptions.reconfigure
     ) {
       throw new Error(
-        `Provider "${this.name}" does not have "reconfigure" option. It needs to be set via ".provide(inst, options)"`
+        `Provider "${this.name}" does not have "reconfigure" option. It needs to be set via ".bind(inst, options)"`
       );
     }
     this[ProviderInitParamsSymbol] = params as any;
@@ -453,19 +558,18 @@ export class Provider<
 
   /*----------  Private  ----------*/
 
+  private static _registry = new Set<Provider<any, any>>();
+
   private implementation!: S;
   private props: ProviderProps;
   private dependenciesList: DepsProviders | undefined;
   private lifecycleOptions?: ProviderLifecycleOptions<S>;
   private markReady!: () => void;
   private markBroken!: (error: unknown) => void;
-  private isProviderReady: boolean = false;
-  private isInitializing: boolean = false;
-  private isStarted: boolean = false;
-  private isStopped: boolean = false;
-  private readyCallbacks: (() => void)[] = [];
-  private startCallbacks: (() => void)[] = [];
-  private stopCallbacks: (() => void)[] = [];
+  private state: ProviderState = ProviderState.IDLE;
+  private readyCallbacks?: (() => void)[];
+  private startCallbacks?: (() => void)[];
+  private stopCallbacks?: (() => void)[];
 
   private constructor(props: ProviderProps, deps?: DepsProviders) {
     if (!props.name) throw new Error("Provider name is required");
@@ -473,13 +577,14 @@ export class Provider<
     this.dependenciesList = deps;
     this.whenReady = new Promise((resolve, reject) => {
       this.markReady = () => {
-        this.isProviderReady = true;
-        for (const cb of this.readyCallbacks) cb();
+        this.state = ProviderState.READY;
+        if (this.readyCallbacks) {
+          for (const cb of this.readyCallbacks) cb();
+        }
         resolve();
       };
       this.markBroken = reject;
     });
-    this.ready = this.whenReady;
     return;
   }
 }

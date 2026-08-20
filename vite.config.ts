@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 import path from "path";
 import { defineConfig } from "vitest/config";
+import { playwright } from "@vitest/browser-playwright";
 
 export default defineConfig({
   build: {
@@ -14,8 +15,32 @@ export default defineConfig({
     sourcemap: true,
   },
   test: {
-    environment: "node",
     watch: false,
+    coverage: {
+      include: ["src/**/*.ts"],
+    },
+    projects: [
+      {
+        test: {
+          name: "node",
+          environment: "node",
+          include: ["test/**/*.spec.ts"],
+        },
+      },
+      {
+        test: {
+          name: "browser",
+          include: ["test/**/*.spec.ts"],
+          browser: {
+            enabled: true,
+            provider: playwright(),
+            headless: true,
+            instances: [{ browser: "chromium" }],
+            screenshotFailures: false,
+          },
+        },
+      },
+    ],
   },
   resolve: {
     alias: {
