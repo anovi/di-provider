@@ -1,10 +1,35 @@
 {
   "name": "di-provider",
   "version": "0.0.1",
+  "description": "A lightweight, isomorphic Dependency Injection (DI) container and lifecycle orchestrator for TypeScript and JavaScript applications.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "license": "MIT",
+  "author": "Aleksei Novichkov",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anovi/di-provider.git"
+  },
+  "bugs": {
+    "url": "https://github.com/anovi/di-provider/issues"
+  },
+  "homepage": "https://github.com/anovi/di-provider#readme",
+  "keywords": [
+    "dependency-injection",
+    "di",
+    "ioc",
+    "inversion-of-control",
+    "di-container",
+    "service-container",
+    "lifecycle",
+    "lifecycle-orchestrator",
+    "dependency-graph",
+    "topological-sort",
+    "isomorphic",
+    "typescript"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -21,7 +46,7 @@
   "sideEffects": false,
   "scripts": {
     "dev": "vite",
-    "build": "rimraf dist && tsc && vite build && dts-bundle-generator --config ./dts-bundle-generator.config.ts",
+    "build": "rimraf dist && tsc && vite build && dts-bundle-generator -o ./dist/index.d.ts ./src/index.ts",
     "test": "vitest run",
     "test:node": "vitest run --project=node",
     "test:browser": "vitest run --project=browser",
